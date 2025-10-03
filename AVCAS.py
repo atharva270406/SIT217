@@ -1,87 +1,87 @@
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+# -----------------------------------------------
+# Patient Monitoring Simulation (Colab Version)
+# -----------------------------------------------
+
 import random
-import logging
-from datetime import datetime
-from IPython.display import HTML
+import time
+import pandas as pd
+import matplotlib.pyplot as plt
 
-# Setup logging
-log_file = "avcas_log.txt"
-logging.basicConfig(filename=log_file, level=logging.INFO, format='%(asctime)s - %(message)s')
+# ---------------- Configuration ----------------
+THRESHOLDS = {
+    "hr": {"low": 40, "high": 130},      # heart rate (bpm)
+    "sbp": {"low": 70, "high": 200},     # systolic blood pressure (mmHg)
+    "spo2": {"low": 85, "high": 100},    # oxygen saturation (%)
+    "temp": {"low": 34.0, "high": 41.0}  # temperature (°C)
+}
 
-# Simulation parameters
-GRID_WIDTH = 100
-GRID_HEIGHT = 60
-vehicle_pos = [10, 30]
-vehicle_speed = 1
-obstacle_pos = [random.randint(40, 90), random.randint(10, 50)]
-fail_safe_triggered = False
-DETECTION_RADIUS = 10  # Visual range in grid units
+NUM_PATIENTS = 3      # number of patients
+ITERATIONS = 30       # number of samples
+INTERVAL = 1.0        # seconds between samples (simulation speed)
 
-# Logging helper
-def log_event(message):
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    print(f"[{timestamp}] {message}")
-    logging.info(message)
 
-# Sensor failure simulation
-def simulate_sensor_failure():
-    return random.random() < 0.02
+# ---------------- Simulation Functions ----------------
+def simulate_vitals():
+    """Generate random vital signs for one patient."""
+    return {
+        "hr": random.randint(30, 160),
+        "sbp": random.randint(60, 210),
+        "spo2": random.randint(70, 100),
+        "temp": round(random.uniform(33.0, 42.0), 1)
+    }
 
-# Obstacle detection within range
-def obstacle_in_range():
-    dx = vehicle_pos[0] - obstacle_pos[0]
-    dy = vehicle_pos[1] - obstacle_pos[1]
-    distance = (dx**2 + dy**2)**0.5
-    return distance <= DETECTION_RADIUS
+def check_alerts(vitals):
+    """Check if vitals cross thresholds. Return list of alerts."""
+    alerts = []
+    for key, value in vitals.items():
+        if value < THRESHOLDS[key]["low"] or value > THRESHOLDS[key]["high"]:
+            alerts.append(f"{key.upper()} out of range ({value})")
+    return alerts
 
-# Animation function
-def update(frame):
-    global vehicle_pos, fail_safe_triggered
 
-    plt.cla()
-    plt.xlim(0, GRID_WIDTH)
-    plt.ylim(0, GRID_HEIGHT)
+# ---------------- Data Collection ----------------
+records = []
 
-    # Simulate sensor failure
-    if simulate_sensor_failure():
-        fail_safe_triggered = True
-        log_event("Sensor failure detected. Entering fail-safe mode.")
-    else:
-        fail_safe_triggered = False
+print("=== Running Patient Monitoring Simulation ===")
+for i in range(ITERATIONS):
+    for pid in range(1, NUM_PATIENTS + 1):
+        vitals = simulate_vitals()
+        alerts = check_alerts(vitals)
 
-    # Emergency braking if obstacle is in range
-    if obstacle_in_range() and not fail_safe_triggered:
-        log_event("Obstacle within detection range. Emergency braking triggered.")
-        vehicle_speed_effective = 0
-    else:
-        vehicle_speed_effective = vehicle_speed
+        # save record
+        record = {
+            "iteration": i,
+            "patient_id": pid,
+            **vitals,
+            "alert": "; ".join(alerts) if alerts else "Stable"
+        }
+        records.append(record)
 
-    # Move vehicle if not in fail-safe
-    if not fail_safe_triggered:
-        vehicle_pos[0] += vehicle_speed_effective
+        # print to console
+        print(f"Iter {i+1} | Patient P{pid} | HR={vitals['hr']} | SBP={vitals['sbp']} | "
+              f"SpO2={vitals['spo2']} | Temp={vitals['temp']} -> {record['alert']}")
 
-    # Draw vehicle
-    vehicle_color = 'gray' if fail_safe_triggered else 'green'
-    plt.plot(vehicle_pos[0], vehicle_pos[1], 'o', color=vehicle_color, markersize=10, label='Vehicle')
+    time.sleep(INTERVAL)
 
-    # Draw detection radius
-    detection_circle = plt.Circle((vehicle_pos[0], vehicle_pos[1]), DETECTION_RADIUS, color='blue', alpha=0.2)
-    plt.gca().add_patch(detection_circle)
+# ---------------- Save to CSV ----------------
+df = pd.DataFrame(records)
+df.to_csv("patient_vitals_log.csv", index=False)
+print("\nSimulation complete. Data saved to patient_vitals_log.csv")
 
-    # Draw obstacle
-    plt.plot(obstacle_pos[0], obstacle_pos[1], 'rs', markersize=10, label='Obstacle')
+# ---------------- Plot Results ----------------
+plt.figure(figsize=(12,6))
 
-    # Show detection status
-    if obstacle_in_range():
-        plt.text(obstacle_pos[0], obstacle_pos[1] + 2, "In Range", color='red', fontsize=9)
+for pid in range(1, NUM_PATIENTS+1):
+    subset = df[df["patient_id"] == pid]
+    plt.plot(subset["iteration"], subset["hr"], label=f"P{pid} HR")
 
-    plt.legend(loc='upper right')
-    plt.title("AVCAS Simulation with Sensor Range")
+plt.axhline(THRESHOLDS["hr"]["low"], color="red", linestyle="--", alpha=0.7)
+plt.axhline(THRESHOLDS["hr"]["high"], color="red", linestyle="--", alpha=0.7)
+plt.title("Heart Rate Trends Across Patients")
+plt.xlabel("Iteration")
+plt.ylabel("Heart Rate (bpm)")
+plt.legend()
+plt.show()
 
-# Create figure and animation
-fig = plt.figure(figsize=(10, 6))
-anim = animation.FuncAnimation(fig, update, frames=100, interval=200)
-
-# Display animation in Colab
-HTML(anim.to_jshtml())
+# Show last few log entries
+df.tail(10)
